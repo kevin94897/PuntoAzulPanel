@@ -1,0 +1,7 @@
+/* Quitar borde y sombra de todos los botones de día */
+.rdp-day_button {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  background-clip: padding-box; /* Evita bordes internos */
+}
