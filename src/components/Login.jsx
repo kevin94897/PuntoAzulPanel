@@ -24,7 +24,7 @@ export default function Login({ onLogin }) {
 
     try {
       const response = await fetch(
-        "https://puntoazul2.nerdstudiolab.com/wp-json/wp/v2/users/me",
+        `${import.meta.env.VITE_API_URL}/wp/v2/users/me`,
         {
           headers: {
             Authorization: `Basic ${token}`,

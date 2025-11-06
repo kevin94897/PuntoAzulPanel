@@ -5,3 +5,34 @@
   outline: none !important;
   background-clip: padding-box; /* Evita bordes internos */
 }
+
+/* Estilos responsivos para el calendario */
+@media (max-width: 640px) {
+  .rdp {
+    --rdp-cell-size: 36px !important; /* Reduce el tamaño de las celdas en móvil */
+    margin: 0 !important;
+    width: 100% !important;
+  }
+
+  .rdp-month {
+    width: 100% !important;
+  }
+
+  .rdp-table {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .rdp-caption {
+    font-size: 1rem !important;
+    padding: 0 0.5rem !important;
+  }
+
+  .rdp-head_cell {
+    font-size: 0.8rem !important;
+  }
+
+  .rdp-day {
+    font-size: 0.9rem !important;
+  }
+}
