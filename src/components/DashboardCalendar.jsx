@@ -528,21 +528,95 @@ export default function DashboardCalendar({ token, onLogout }) {
 											<p className="text-xs text-white/80">{local.location}</p>
 										</div>
 									</div>
-									<div className="p-4">
-										<div className="flex items-center justify-between">
-											<div className="text-sm text-gray-600">
-												{local.inicio_reserva} - {local.fin_reserva}
+
+									<div className="p-4 space-y-3">
+										<div className="flex md:items-center justify-between md:flex-row flex-col gap-2">
+											<div className="flex items-center gap-2 text-gray-700">
+												<Clock className="w-4 h-4" />
+												<span className="text-sm font-medium">
+													Horario de atención:
+													<b>
+														{' '}
+														{local.inicio_reserva} - {local.fin_reserva}
+													</b>
+												</span>
 											</div>
-											<div className="text-xs bg-red-50 text-red-700 px-3 py-1 rounded-full">
+											<div className="text-xs bg-red-50 text-red-700 px-3 py-1 rounded-full font-semibold max-w-max">
 												{blockedCount}{' '}
 												{blockedCount === 1 ? 'bloqueo' : 'bloqueos'}
 											</div>
 										</div>
-										<div className="mt-3">
-											<button className="w-full text-left text-sm text-gray-700 hover:text-gray-900 font-medium">
-												Configurar
-											</button>
+
+										<div className="grid grid-cols-2 gap-3 text-xs">
+											<div className="bg-blue-50 rounded-lg p-2">
+												<p className="text-gray-600 mb-1">Max. personas</p>
+												<p className="font-bold text-blue-700 text-base">
+													{local.cantidad_personas_max}
+												</p>
+											</div>
+											<div className="bg-blue-50 rounded-lg p-2">
+												<p className="text-gray-600 mb-1">Max. reservas/día</p>
+												<p className="font-bold text-blue-700 text-base">
+													{local.nro_reservas_max}
+												</p>
+											</div>
 										</div>
+
+										<div className="bg-gray-50 rounded-lg p-2">
+											<p className="text-xs text-gray-600 mb-1">
+												Días laborales
+											</p>
+											<div className="flex flex-wrap gap-1">
+												{local.dias_disponibles.map((dia) => (
+													<span
+														key={dia}
+														className="text-xs bg-white px-2 py-1 rounded border border-gray-200 capitalize"
+													>
+														{dia.substring(0, 3)}
+													</span>
+												))}
+											</div>
+										</div>
+
+										{blockedCount > 0 && (
+											<div className="bg-red-50 rounded-lg p-2 border border-red-100">
+												<p className="text-xs text-red-700 font-semibold mb-2">
+													Fechas bloqueadas próximas:
+												</p>
+												<div className="space-y-1 max-h-24 overflow-y-auto">
+													{local.fechas_no_disponibles
+														.slice(0, 10)
+														.map((fb, idx) => (
+															<div
+																key={idx}
+																className="flex items-center justify-between text-xs bg-white px-2 py-1 rounded"
+															>
+																<span className="font-medium text-gray-800">
+																	{formatDateToDisplay(fb.fecha_bloq)}
+																</span>
+																<span className="text-red-600 text-[10px]">
+																	{fb.horas === false
+																		? 'Día completo'
+																		: `${fb.horas.length} ${
+																				fb.horas.length === 1
+																					? 'rango'
+																					: 'rangos'
+																		  }`}
+																</span>
+															</div>
+														))}
+													{blockedCount > 10 && (
+														<p className="text-[10px] text-gray-500 italic text-center pt-1">
+															+{blockedCount - 5} fechas más
+														</p>
+													)}
+												</div>
+											</div>
+										)}
+
+										<button className="w-full text-sm text-gray-800 hover:text-black font-semibold py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
+											Ver calendario →
+										</button>
 									</div>
 								</div>
 							);
