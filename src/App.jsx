@@ -7,7 +7,7 @@ import Dashboard from "./components/Dashboard"
 const AUTH_KEY = "puntoazul_auth"
 // TTL for stored token (milliseconds). Currently 24 hours.
 const AUTH_TTL_MS = 24 * 60 * 60 * 1000
-//Nerd   GFAf K1VT 57sv Go3r Heaa k5P3
+//Nerd  cris  GFAf K1VT 57sv Go3r Heaa k5P3
 function saveAuth(token) {
   try {
     const payload = {

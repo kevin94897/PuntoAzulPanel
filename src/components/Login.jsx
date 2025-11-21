@@ -51,7 +51,7 @@ export default function Login({ onLogin }) {
       style={{ backgroundImage: `url(${bg})` }}
     >
       {/* overlay */}
-      <div className="absolute inset-0 bg-black/40" />
+      <div className="absolute inset-0" />
 
       <form
         onSubmit={handleLogin}
@@ -60,8 +60,8 @@ export default function Login({ onLogin }) {
         <div className="flex justify-center mb-4">
           <img src={logo} alt="Punto Azul" className="w-24 h-24 object-contain" />
         </div>
-        <h2 className="text-2xl font-bold text-center text-gray-800 mb-4">
-          Acceso al Panel
+        <h2 className="text-2xl font-bold text-center mb-4 leading-tight">
+          Gestor de bloqueo de reservas
         </h2>
 
         <div className="mb-4">
@@ -91,7 +91,7 @@ export default function Login({ onLogin }) {
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50"
+          className="w-full bg-[#00BDF2] text-white py-2 rounded-full font-medium hover:bg-blue-700 transition disabled:opacity-50"
         >
           {loading ? "Conectando..." : "Iniciar sesión"}
         </button>

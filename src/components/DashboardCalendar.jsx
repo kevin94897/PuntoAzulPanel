@@ -16,6 +16,35 @@ import {
 	LogOut,
 } from 'lucide-react';
 import 'react-day-picker/style.css';
+import bg from "../assets/bg_puntoazul.png"
+
+
+const convertirHoraAMinutos = (horaStr) => {
+	// Ejemplo: "10:30 am" o "2:00 pm"
+	const [tiempo, periodo] = horaStr.split(' ');
+	const [horas, minutos] = tiempo.split(':').map(Number);
+
+	let hora24 = horas;
+
+	// Convertir a formato 24 horas
+	if (periodo === 'pm' && horas !== 12) {
+		hora24 = horas + 12;
+	} else if (periodo === 'am' && horas === 12) {
+		hora24 = 0;
+	}
+
+	return hora24 * 60 + minutos;
+};
+
+/**
+ * Valida que la hora de fin sea posterior a la hora de inicio
+ */
+const validarRangoHorario = (horaInicio, horaFin) => {
+	const minutosInicio = convertirHoraAMinutos(horaInicio);
+	const minutosFin = convertirHoraAMinutos(horaFin);
+
+	return minutosFin > minutosInicio;
+};
 
 export default function DashboardCalendar({ token, onLogout }) {
 	const [locales, setLocales] = useState([]);
@@ -36,31 +65,26 @@ export default function DashboardCalendar({ token, onLogout }) {
 	};
 
 	const formatDateToString = (date) => {
-		// Asegurarnos de que date sea un objeto Date válido
 		const d = String(date.getDate()).padStart(2, '0');
 		const m = String(date.getMonth() + 1).padStart(2, '0');
 		const y = date.getFullYear();
-		// WordPress espera formato: mm/dd/yyyy (formato americano)
 		return `${m}/${d}/${y}`;
 	};
 
 	const formatDateToDisplay = (dateStr) => {
-		// dateStr viene en formato "mm/dd/yyyy"
 		const [m, d, y] = dateStr.split('/');
-		// Mostrar en formato legible: dd/mm/yyyy
 		return `${d}/${m}/${y}`;
 	};
 
 	const parseDate = (str) => {
-		// str viene en formato "mm/dd/yyyy" desde WordPress
 		const [m, d, y] = str.split('/').map(Number);
-		// Date() espera (año, mes-1, día)
 		return new Date(y, m - 1, d);
 	};
 
 	const generarOpcionesMediaHora = () => {
 		const opciones = [];
-		for (let h = 0; h < 24; h++) {
+
+		for (let h = 8; h <= 20; h++) {
 			for (let m of [0, 30]) {
 				const ampm = h < 12 ? 'am' : 'pm';
 				const hora12 = h % 12 === 0 ? 12 : h % 12;
@@ -68,8 +92,10 @@ export default function DashboardCalendar({ token, onLogout }) {
 				opciones.push(`${hora12}:${minutos} ${ampm}`);
 			}
 		}
+
 		return opciones;
 	};
+
 	const opcionesMediaHora = generarOpcionesMediaHora();
 
 	const fetchLocales = async () => {
@@ -93,17 +119,11 @@ export default function DashboardCalendar({ token, onLogout }) {
 		fetchLocales();
 	}, []);
 
-	// ✅ Cambio 1: Prevenir deselección de días bloqueados
 	const handleDayClick = (fecha, index, event) => {
 		event.preventDefault();
 
-		// Asegurarnos de trabajar con un objeto Date
 		const fechaObj = new Date(fecha);
-
-		// Guardamos en formato mm/dd/yyyy para WordPress
-		const fechaStr = `${
-			fechaObj.getMonth() + 1
-		}/${fechaObj.getDate()}/${fechaObj.getFullYear()}`;
+		const fechaStr = `${fechaObj.getMonth() + 1}/${fechaObj.getDate()}/${fechaObj.getFullYear()}`;
 
 		console.log('Fecha clickeada:', fechaObj);
 		console.log('Fecha para WordPress:', fechaStr);
@@ -136,6 +156,19 @@ export default function DashboardCalendar({ token, onLogout }) {
 	const actualizarRango = (i, campo, valor) => {
 		const nuevos = [...modalRangos];
 		nuevos[i][campo] = valor;
+
+		// Validación en tiempo real (opcional)
+		if (campo === 'hora_inicio' || campo === 'hora_fin') {
+			const rango = nuevos[i];
+			if (rango.hora_inicio && rango.hora_fin) {
+				if (rango.hora_inicio === rango.hora_fin) {
+					console.warn(`Rango ${i + 1}: Las horas son iguales`);
+				} else if (!validarRangoHorario(rango.hora_inicio, rango.hora_fin)) {
+					console.warn(`Rango ${i + 1}: La hora de fin es anterior a la de inicio`);
+				}
+			}
+		}
+
 		setModalRangos(nuevos);
 	};
 
@@ -155,13 +188,50 @@ export default function DashboardCalendar({ token, onLogout }) {
 			}
 
 			// Validar rangos
-			for (const r of modalRangos) {
+			for (let i = 0; i < modalRangos.length; i++) {
+				const r = modalRangos[i];
+
+				// Validar que las horas no sean iguales
 				if (r.hora_fin === r.hora_inicio) {
 					showNotification(
 						'error',
-						'Las horas de inicio y fin no pueden ser iguales'
+						`Rango ${i + 1}: Las horas de inicio y fin no pueden ser iguales`
 					);
 					return;
+				}
+
+				// ✅ Validar que hora de fin sea posterior a hora de inicio
+				if (!validarRangoHorario(r.hora_inicio, r.hora_fin)) {
+					showNotification(
+						'error',
+						`Rango ${i + 1}: La hora de fin (${r.hora_fin}) debe ser posterior a la hora de inicio (${r.hora_inicio})`
+					);
+					return;
+				}
+			}
+
+			// ✅ Validar que no haya solapamiento entre rangos
+			for (let i = 0; i < modalRangos.length; i++) {
+				for (let j = i + 1; j < modalRangos.length; j++) {
+					const rangoA = modalRangos[i];
+					const rangoB = modalRangos[j];
+
+					const inicioA = convertirHoraAMinutos(rangoA.hora_inicio);
+					const finA = convertirHoraAMinutos(rangoA.hora_fin);
+					const inicioB = convertirHoraAMinutos(rangoB.hora_inicio);
+					const finB = convertirHoraAMinutos(rangoB.hora_fin);
+
+					// Verificar solapamiento
+					if (
+						(inicioA < finB && finA > inicioB) ||
+						(inicioB < finA && finB > inicioA)
+					) {
+						showNotification(
+							'error',
+							`Los rangos ${i + 1} y ${j + 1} se solapan. Por favor ajústalos.`
+						);
+						return;
+					}
 				}
 			}
 		}
@@ -175,15 +245,14 @@ export default function DashboardCalendar({ token, onLogout }) {
 			(f) => f.fecha_bloq !== modalConfig.fecha
 		);
 
-		// ✅ Cambio 2: Guardar correctamente el formato de horas
 		const nuevoBloqueo = {
 			fecha_bloq: modalConfig.fecha,
 			horas: bloqueoDiaCompleto
 				? false
 				: modalRangos.map((r) => ({
-						hora_inicio: r.hora_inicio,
-						hora_fin: r.hora_fin,
-				  })),
+					hora_inicio: r.hora_inicio,
+					hora_fin: r.hora_fin,
+				})),
 		};
 
 		console.log('Guardando bloqueo:', nuevoBloqueo);
@@ -200,41 +269,44 @@ export default function DashboardCalendar({ token, onLogout }) {
 		setModalConfig(null);
 		setModalRangos([]);
 		setBloqueoDiaCompleto(false);
-		// showNotification(
-		// 	'success',
-		// 	'Bloqueo configurado. No olvides guardar los cambios.'
-		// );
 	};
 
 	const eliminarBloqueo = () => {
 		const newLocales = [...locales];
-		const fechas =
-			newLocales[modalConfig.localIndex].fechas_no_disponibles || [];
-		newLocales[modalConfig.localIndex].fechas_no_disponibles = fechas.filter(
-			(f) => f.fecha_bloq !== modalConfig.fecha
+		const localActual = newLocales[modalConfig.localIndex];
+
+		console.log('=== ANTES DE ELIMINAR ===');
+		console.log('Fecha a eliminar:', modalConfig.fecha);
+		console.log('Fechas actuales:', localActual.fechas_no_disponibles);
+
+		// Filtrar la fecha a eliminar
+		const fechasFiltradas = (localActual.fechas_no_disponibles || []).filter(
+			(f) => {
+				console.log('Comparando:', f.fecha_bloq, 'con', modalConfig.fecha, '=', f.fecha_bloq !== modalConfig.fecha);
+				return f.fecha_bloq !== modalConfig.fecha;
+			}
 		);
+
+		localActual.fechas_no_disponibles = fechasFiltradas;
+
+		console.log('=== DESPUÉS DE ELIMINAR ===');
+		console.log('Fechas restantes:', fechasFiltradas);
 
 		setLocales(newLocales);
 		setHasChanges(true);
+		showNotification('success', 'Bloqueo eliminado correctamente');
 		setModalConfig(null);
 		setModalRangos([]);
 		setBloqueoDiaCompleto(false);
-		// showNotification(
-		// 	'success',
-		// 	'Bloqueo eliminado. No olvides guardar los cambios.'
-		// );
 	};
 
-	// ✅ Cambio 3: Enviar solo fechas_no_disponibles sin tocar las imágenes
 	const guardarCambios = async () => {
 		setSaving(true);
 
 		try {
-			// Preparar el payload solo con fechas_no_disponibles
 			const localesFormateados = locales.map((local) => ({
 				codigo_local: local.codigo_local,
 				nombre: local.nombre,
-				// NO enviamos 'imagen' para evitar que se borre
 				location: local.location,
 				inicio_reserva: local.inicio_reserva,
 				fin_reserva: local.fin_reserva,
@@ -249,13 +321,6 @@ export default function DashboardCalendar({ token, onLogout }) {
 
 			console.log('=== DATA A ENVIAR A WORDPRESS ===');
 			console.log(JSON.stringify(payload, null, 2));
-			console.log('=== FECHAS ESPECÍFICAS ===');
-			localesFormateados.forEach((local, idx) => {
-				console.log(
-					`Local ${idx} (${local.nombre}):`,
-					local.fechas_no_disponibles
-				);
-			});
 
 			const res = await fetch(ACF_URL, {
 				method: 'POST',
@@ -279,7 +344,6 @@ export default function DashboardCalendar({ token, onLogout }) {
 			showNotification('success', 'Cambios guardados correctamente');
 			setHasChanges(false);
 
-			// Recargar datos para sincronizar
 			await fetchLocales();
 		} catch (err) {
 			showNotification('error', 'Error al guardar: ' + err.message);
@@ -298,14 +362,13 @@ export default function DashboardCalendar({ token, onLogout }) {
 	}
 
 	return (
-		<div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 w-full">
+		<div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 w-full" style={{ backgroundImage: `url(${bg})` }}>
 			{/* Notificaciones */}
 			{notification && (
 				<div className="fixed top-24 right-6 z-50">
 					<div
-						className={`px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 ${
-							notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
-						} text-white`}
+						className={`px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 ${notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+							} text-white`}
 					>
 						{notification.type === 'success' ? (
 							<Check className="w-5 h-5" />
@@ -327,38 +390,14 @@ export default function DashboardCalendar({ token, onLogout }) {
 							className="w-14 h-14 object-contain"
 						/>
 					</div>
-					{/* <div className="hidden md:flex items-center gap-3">
-						{selectedIndex !== null && (
-							<button
-								onClick={() => setSelectedIndex(null)}
-								className="mr-2 p-2 rounded-md bg-gray-100 hover:bg-gray-200"
-								aria-label="Volver"
-							>
-								<ArrowLeft className="w-5 h-5 text-gray-700" />
-							</button>
-						)}
-						<div className="bg-gray-800 p-3 rounded-lg">
-							<Calendar className="w-6 h-6 text-white" />
-						</div>
-						<div>
-							<h1 className="text-2xl font-bold text-gray-900">
-								Gestión de Disponibilidad
-							</h1>
-							<p className="text-gray-500 text-sm">
-								{locales.length} {locales.length === 1 ? 'local' : 'locales'}{' '}
-								disponibles
-							</p>
-						</div>
-					</div> */}
 					<div className="flex items-center gap-2">
 						<button
 							onClick={guardarCambios}
 							disabled={saving || !hasChanges}
-							className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all duration-200 ${
-								hasChanges
-									? 'bg-gray-800 hover:bg-gray-900 text-white shadow-lg'
-									: 'bg-gray-200 text-gray-400 cursor-not-allowed'
-							}`}
+							className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all duration-200 ${hasChanges
+								? 'bg-gray-800 hover:bg-gray-900 text-white shadow-lg'
+								: 'bg-gray-200 text-gray-400 cursor-not-allowed'
+								}`}
 						>
 							{saving ? (
 								<RefreshCw className="w-5 h-5 animate-spin" />
@@ -426,42 +465,66 @@ export default function DashboardCalendar({ token, onLogout }) {
 
 						{!bloqueoDiaCompleto && (
 							<div className="space-y-3 mb-6">
-								{modalRangos.map((r, i) => (
-									<div key={i} className="flex gap-2 items-center">
-										<select
-											value={r.hora_inicio}
-											onChange={(e) =>
-												actualizarRango(i, 'hora_inicio', e.target.value)
-											}
-											className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-										>
-											{opcionesMediaHora.map((h) => (
-												<option key={h}>{h}</option>
-											))}
-										</select>
+								{modalRangos.map((r, i) => {
+									// Validar el rango actual
+									const esIgual = r.hora_inicio === r.hora_fin;
+									const esInvalido = !esIgual && !validarRangoHorario(r.hora_inicio, r.hora_fin);
+									const tieneError = esIgual || esInvalido;
 
-										<span className="text-gray-500">-</span>
+									return (
+										<div key={i}>
+											<div className="flex gap-2 items-center">
+												<select
+													value={r.hora_inicio}
+													onChange={(e) =>
+														actualizarRango(i, 'hora_inicio', e.target.value)
+													}
+													className={`flex-1 px-3 py-2 border rounded-lg text-sm ${tieneError ? 'border-red-500 bg-red-50' : 'border-gray-300'
+														}`}
+												>
+													{opcionesMediaHora.map((h) => (
+														<option key={h}>{h}</option>
+													))}
+												</select>
 
-										<select
-											value={r.hora_fin}
-											onChange={(e) =>
-												actualizarRango(i, 'hora_fin', e.target.value)
-											}
-											className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-										>
-											{opcionesMediaHora.map((h) => (
-												<option key={h}>{h}</option>
-											))}
-										</select>
+												<span className="text-gray-500">-</span>
 
-										<button
-											onClick={() => eliminarRango(i)}
-											className="text-red-600 hover:text-red-700"
-										>
-											<X className="w-5 h-5" />
-										</button>
-									</div>
-								))}
+												<select
+													value={r.hora_fin}
+													onChange={(e) =>
+														actualizarRango(i, 'hora_fin', e.target.value)
+													}
+													className={`flex-1 px-3 py-2 border rounded-lg text-sm ${tieneError ? 'border-red-500 bg-red-50' : 'border-gray-300'
+														}`}
+												>
+													{opcionesMediaHora.map((h) => (
+														<option key={h}>{h}</option>
+													))}
+												</select>
+
+												<button
+													onClick={() => eliminarRango(i)}
+													className="text-red-600 hover:text-red-700"
+												>
+													<X className="w-5 h-5" />
+												</button>
+											</div>
+
+											{/* Mensaje de error visual */}
+											{tieneError && (
+												<div className="flex items-center gap-1 mt-1 ml-1">
+													<AlertCircle className="w-3 h-3 text-red-500" />
+													<p className="text-xs text-red-600">
+														{esIgual
+															? 'Las horas no pueden ser iguales'
+															: 'La hora de fin debe ser posterior a la de inicio'
+														}
+													</p>
+												</div>
+											)}
+										</div>
+									);
+								})}
 
 								<button
 									onClick={agregarRango}
@@ -578,41 +641,55 @@ export default function DashboardCalendar({ token, onLogout }) {
 											</div>
 										</div>
 
-										{blockedCount > 0 && (
-											<div className="bg-red-50 rounded-lg p-2 border border-red-100">
-												<p className="text-xs text-red-700 font-semibold mb-2">
-													Fechas bloqueadas próximas:
-												</p>
-												<div className="space-y-1 max-h-24 overflow-y-auto">
-													{local.fechas_no_disponibles
-														.slice(0, 10)
-														.map((fb, idx) => (
-															<div
-																key={idx}
-																className="flex items-center justify-between text-xs bg-white px-2 py-1 rounded"
-															>
-																<span className="font-medium text-gray-800">
+										<div className="bg-red-50 rounded-lg p-2 border border-red-100">
+											<p className="text-xs text-red-700 font-semibold mb-2">
+												Fechas bloqueadas próximas:
+											</p>
+											<div className="space-y-2 max-h-32 overflow-y-auto">
+												{local.fechas_no_disponibles
+													.slice(0, 10)
+													.map((fb, idx) => (
+														<div
+															key={idx}
+															className="bg-white px-2 py-2 rounded"
+														>
+															<div className="flex items-center justify-between mb-1">
+																<span className="font-medium text-gray-800 text-xs">
 																	{formatDateToDisplay(fb.fecha_bloq)}
 																</span>
-																<span className="text-red-600 text-[10px]">
+																<span className="text-red-600 text-[10px] font-semibold">
 																	{fb.horas === false
 																		? 'Día completo'
-																		: `${fb.horas.length} ${
-																				fb.horas.length === 1
-																					? 'rango'
-																					: 'rangos'
-																		  }`}
+																		: `${fb.horas.length} ${fb.horas.length === 1
+																			? 'rango'
+																			: 'rangos'
+																		}`}
 																</span>
 															</div>
-														))}
-													{blockedCount > 10 && (
-														<p className="text-[10px] text-gray-500 italic text-center pt-1">
-															+{blockedCount - 5} fechas más
-														</p>
-													)}
-												</div>
+															{fb.horas !== false && Array.isArray(fb.horas) && (
+																<div className="space-y-1 ml-1">
+																	{fb.horas.map((rango, rangoIdx) => (
+																		<div
+																			key={rangoIdx}
+																			className="flex items-center gap-1 text-[10px] text-gray-600"
+																		>
+																			<Clock className="w-3 h-3" />
+																			<span>
+																				{rango.hora_inicio} - {rango.hora_fin}
+																			</span>
+																		</div>
+																	))}
+																</div>
+															)}
+														</div>
+													))}
+												{blockedCount > 10 && (
+													<p className="text-[10px] text-gray-500 italic text-center pt-1">
+														+{blockedCount - 10} fechas más
+													</p>
+												)}
 											</div>
-										)}
+										</div>
 
 										<button className="w-full text-sm text-gray-800 hover:text-black font-semibold py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
 											Ver calendario →
@@ -666,7 +743,19 @@ export default function DashboardCalendar({ token, onLogout }) {
 													onDayClick={(day, modifiers, e) =>
 														handleDayClick(day, index, e)
 													}
-													disabled={{ before: new Date() }}
+													disabled={(day) => {
+														const hoy = new Date();
+														hoy.setHours(0, 0, 0, 0);
+
+														const esAnterior = day < hoy;
+
+														const esBloqueada = fechasBloqueadas.some(
+															(f) => f.toDateString() === day.toDateString()
+														);
+
+														// Deshabilitar fechas anteriores, excepto las bloqueadas
+														return esAnterior && !esBloqueada;
+													}}
 													locale={es}
 													weekStartsOn={1}
 													className="mx-auto w-full"
