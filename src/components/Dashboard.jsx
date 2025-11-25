@@ -28,7 +28,7 @@ export default function Dashboard({ token }) {
 		},
 	];
 
-	const ACF_URL = 'https://puntoazulrestaurante.com/wp-json/acf/v3/pages/984';
+	const ACF_URL = 'https://puntoazul2.nerdstudiolab.com/wp-json/acf/v3/pages/984';
 
 	const fetchACF = async () => {
 		setLoading(true);
@@ -70,9 +70,8 @@ export default function Dashboard({ token }) {
 					<div
 						key={local.id}
 						onClick={() => setSelectedLocal(local.id)}
-						className={`cursor-pointer bg-white shadow-md rounded-xl overflow-hidden hover:shadow-lg transition transform hover:-translate-y-1 ${
-							selectedLocal === local.id ? 'ring-4 ring-blue-500' : ''
-						}`}
+						className={`cursor-pointer bg-white shadow-md rounded-xl overflow-hidden hover:shadow-lg transition transform hover:-translate-y-1 ${selectedLocal === local.id ? 'ring-4 ring-blue-500' : ''
+							}`}
 					>
 						<img
 							src={local.img}
