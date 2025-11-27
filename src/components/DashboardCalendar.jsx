@@ -48,6 +48,37 @@ const validarRangoHorario = (horaInicio, horaFin) => {
 	return minutosFin > minutosInicio;
 };
 
+/**
+ * Convierte una cadena de hora (ej: "13:00" o "1:00 pm") a un formato estándar "1:00 pm".
+ * Esencial para que los <select> reconozcan el valor inicial del backend (ACF).
+ */
+const formatearHoraACampo = (horaStr) => {
+	if (!horaStr) return '';
+	let [tiempo, periodo] = horaStr.toLowerCase().split(' ');
+
+	// Si ya tiene am/pm, normalizar
+	if (periodo) {
+		let [horas, minutos] = tiempo.split(':').map(Number);
+		const ampm = periodo === 'pm' ? 'pm' : 'am';
+		const hora12 = horas % 12 === 0 ? 12 : horas % 12;
+		const minutosStr = String(minutos).padStart(2, '0');
+		return `${hora12}:${minutosStr} ${ampm}`;
+	}
+
+	// Si es formato 24h sin am/pm (ej: "13:30"), convertir a 12h am/pm
+	if (tiempo.includes(':')) {
+		let [h24, m] = tiempo.split(':').map(Number);
+		const ampm = h24 >= 12 ? 'pm' : 'am';
+		const hora12 = h24 % 12 === 0 ? 12 : h24 % 12;
+		const minutosStr = String(m).padStart(2, '0');
+		return `${hora12}:${minutosStr} ${ampm}`;
+	}
+
+	// Devolver original si el formato no es reconocible
+	return horaStr;
+};
+
+
 // Días de la semana para el checkbox
 const DIAS_SEMANA = [
 	{ key: 'lunes', label: 'Lun' },
@@ -132,7 +163,12 @@ export default function DashboardCalendar({ token, onLogout }) {
 			// Asegurarse de que `fechas_no_disponibles` sea un array si no existe, para evitar errores en el `map`
 			const processedLocales = (data.acf.locales || []).map(local => ({
 				...local,
+				// APLICAR FORMATO ESTÁNDAR PARA QUE LOS <SELECT> FUNCIONEN CORRECTAMENTE
+				inicio_reserva: formatearHoraACampo(local.inicio_reserva),
+				fin_reserva: formatearHoraACampo(local.fin_reserva),
+				atencion_hasta_x_hora: formatearHoraACampo(local.atencion_hasta_x_hora),
 				fechas_no_disponibles: local.fechas_no_disponibles || [],
+				imagen: local.imagen || "",
 			}));
 			setLocales(processedLocales);
 			setHasChanges(false);
@@ -349,7 +385,7 @@ export default function DashboardCalendar({ token, onLogout }) {
 			const localesFormateados = locales.map((local) => ({
 				codigo_local: local.codigo_local,
 				nombre: local.nombre,
-				imagen: local.imagen,
+				// imagen: local.imagen,
 				location: local.location,
 				inicio_reserva: local.inicio_reserva,
 				fin_reserva: local.fin_reserva,
@@ -592,7 +628,7 @@ export default function DashboardCalendar({ token, onLogout }) {
 
 			{/* LOCALES: vista previa o detalle */}
 			<div className="max-w-7xl mx-auto px-6 py-8">
-				<div className="mb-5">
+				<div className="mb-5 flex justify-between items-center">
 					{selectedIndex !== null && (
 						<button
 							onClick={() => setSelectedIndex(null)}
@@ -603,6 +639,14 @@ export default function DashboardCalendar({ token, onLogout }) {
 							Volver a locales
 						</button>
 					)}
+					<a href="https://puntoazulrestaurante.com/" target="_blank" class="flex items-center gap-2 p-2 rounded-lg bg-[#00BDF2] text-white font-medium text-sm shadow-md hover:bg-blue-600 transition" aria-label="Ver página web del local">
+						<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-external-link w-4 h-4">
+							<path d="M15 3h6v6" />
+							<path d="M10 14 21 3" />
+							<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+						</svg>
+						Ver Página Web
+					</a>
 				</div>
 
 				{selectedIndex === null ? (
@@ -616,7 +660,7 @@ export default function DashboardCalendar({ token, onLogout }) {
 									className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 cursor-pointer"
 									onClick={() => setSelectedIndex(index)}
 								>
-									<div className="relative h-48 overflow-hidden"> {/* Altura reducida para vista previa */}
+									<div className="relative h-64 overflow-hidden"> {/* Altura reducida para vista previa */}
 										<img
 											src={local.imagen}
 											alt={local.nombre}
@@ -670,18 +714,19 @@ export default function DashboardCalendar({ token, onLogout }) {
 							</h2>
 
 							{/* Campo: URL de Imagen */}
-							<div>
-								<label className="block text-sm font-medium text-gray-700 mb-1">
+							{/* <div>
+								<label htmlFor={`imagen-${selectedLocal.codigo_local}`} className="block text-sm font-medium text-gray-700 mb-1">
 									URL de Imagen del Local
 								</label>
 								<input
-									type="url"
-									value={selectedLocal.imagen}
+									type="text"
+									id={`imagen-${selectedLocal.codigo_local}`}
+									value={selectedLocal.imagen} // <--- Usa el valor normalizado del estado
 									onChange={(e) =>
 										handleLocalFieldChange(selectedIndex, 'imagen', e.target.value)
 									}
-									className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm"
-									placeholder="https://..."
+									className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-3 text-sm focus:ring-blue-500 focus:border-blue-500"
+									placeholder="https://ejemplo.com/imagen.jpg"
 								/>
 								{selectedLocal.imagen && (
 									<img
@@ -690,7 +735,7 @@ export default function DashboardCalendar({ token, onLogout }) {
 										className="mt-3 w-full h-32 object-cover rounded-lg border border-gray-200"
 									/>
 								)}
-							</div>
+							</div> */}
 
 							{/* Campo: Ubicación */}
 							<div>
