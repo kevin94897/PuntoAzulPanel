@@ -20,7 +20,9 @@ import {
 import 'react-day-picker/style.css';
 import bg from "../assets/bg_puntoazul.png"
 
-
+/**
+ * Convierte una hora en formato 12h AM/PM (ej: "1:30 pm") a minutos desde medianoche.
+ */
 const convertirHoraAMinutos = (horaStr) => {
 	// Ejemplo: "10:30 am" o "2:00 pm"
 	const [tiempo, periodo] = horaStr.split(' ');
@@ -39,43 +41,85 @@ const convertirHoraAMinutos = (horaStr) => {
 };
 
 /**
+ * Convierte hora de 12h AM/PM (Ej: "1:30 pm") a 24h (Ej: "13:30").
+ * Necesario para GUARDAR en ACF, ya que generalmente espera 24h para campos Time.
+ */
+const convertirHoraA24H = (horaStr) => {
+	if (!horaStr) return '';
+	const [tiempo, periodo] = horaStr.split(' ');
+	let [horas, minutos] = tiempo.split(':').map(Number);
+
+	// Ajuste de horas para 24h
+	if (periodo === 'pm' && horas !== 12) {
+		horas += 12;
+	} else if (periodo === 'am' && horas === 12) {
+		horas = 0; // Medianoche (00:xx)
+	}
+
+	const horasStr = String(horas).padStart(2, '0');
+	const minutosStr = String(minutos).padStart(2, '0');
+
+	return `${horasStr}:${minutosStr}`; // Formato "H:i"
+};
+
+/**
  * Valida que la hora de fin sea posterior a la hora de inicio
  */
 const validarRangoHorario = (horaInicio, horaFin) => {
 	const minutosInicio = convertirHoraAMinutos(horaInicio);
 	const minutosFin = convertirHoraAMinutos(horaFin);
 
-	return minutosFin > minutosInicio;
+	return minutosFin >= minutosInicio;
 };
 
 /**
- * Convierte una cadena de hora (ej: "13:00" o "1:00 pm") a un formato estándar "1:00 pm".
- * Esencial para que los <select> reconozcan el valor inicial del backend (ACF).
+ * 🚨 CORRECCIÓN CLAVE APLICADA AQUÍ: Función de Normalización de Hora.
+ * Asegura que la hora se formatee EXACTAMENTE como "h:mm am/pm" (sin padding en la hora) 
+ * para coincidir con las opciones del <select> generadas por 'generarOpcionesMediaHora'.
  */
 const formatearHoraACampo = (horaStr) => {
 	if (!horaStr) return '';
-	let [tiempo, periodo] = horaStr.toLowerCase().split(' ');
 
-	// Si ya tiene am/pm, normalizar
-	if (periodo) {
-		let [horas, minutos] = tiempo.split(':').map(Number);
-		const ampm = periodo === 'pm' ? 'pm' : 'am';
-		const hora12 = horas % 12 === 0 ? 12 : horas % 12;
-		const minutosStr = String(minutos).padStart(2, '0');
-		return `${hora12}:${minutosStr} ${ampm}`;
+	// Normalizar la cadena: quitar espacios extras y convertir a minúsculas
+	const normalized = horaStr.trim().toLowerCase();
+	const parts = normalized.split(' ');
+
+	let horas, minutos, periodo;
+
+	if (parts.length === 2) {
+		// Caso 1: Viene en formato 12h am/pm (Ej: "01:30 pm" o "1:30 pm")
+		const timePart = parts[0];
+		periodo = parts[1];
+
+		// Usar parseInt para eliminar padding de ceros automáticamente
+		[horas, minutos] = timePart.split(':').map(s => parseInt(s, 10));
+	} else if (parts.length === 1 && parts[0].includes(':')) {
+		// Caso 2: Viene en formato 24h H:i (Ej: "13:30")
+		let h24, m;
+		[h24, m] = parts[0].split(':').map(s => parseInt(s, 10));
+
+		if (isNaN(h24) || isNaN(m)) return horaStr;
+
+		periodo = h24 >= 12 ? 'pm' : 'am';
+
+		let hora12 = h24 % 12;
+		if (hora12 === 0) {
+			hora12 = 12; // 00:xx -> 12 am; 12:xx -> 12 pm
+		}
+		horas = hora12;
+		minutos = m;
+	} else {
+		return horaStr;
 	}
 
-	// Si es formato 24h sin am/pm (ej: "13:30"), convertir a 12h am/pm
-	if (tiempo.includes(':')) {
-		let [h24, m] = tiempo.split(':').map(Number);
-		const ampm = h24 >= 12 ? 'pm' : 'am';
-		const hora12 = h24 % 12 === 0 ? 12 : h24 % 12;
-		const minutosStr = String(m).padStart(2, '0');
-		return `${hora12}:${minutosStr} ${ampm}`;
-	}
+	if (isNaN(horas) || isNaN(minutos)) return horaStr;
 
-	// Devolver original si el formato no es reconocible
-	return horaStr;
+	// 3. Normalizar al formato final (h:mm am/pm)
+	// parseInt ya eliminó el padding, así que 'horas' será 1, 2, ... 12 (sin "01", "02")
+	const minutosStr = String(minutos).padStart(2, '0');
+
+	// Retornar formato sin padding en hora: "1:00 pm", "10:30 am", etc.
+	return `${horas}:${minutosStr} ${periodo}`;
 };
 
 
@@ -113,17 +157,38 @@ export default function DashboardCalendar({ token, onLogout }) {
 		setTimeout(() => setNotification(null), 4000);
 	};
 
+	/**
+	 * CONVERSIÓN DE FECHA: Convierte un objeto Date a la cadena
+	 * esperada por ACF para ALMACENAMIENTO (MM/DD/YYYY).
+	 */
 	const formatDateToString = (date) => {
 		const d = String(date.getDate()).padStart(2, '0');
 		const m = String(date.getMonth() + 1).padStart(2, '0');
 		const y = date.getFullYear();
-		// El formato de WordPress es MM/DD/YYYY
+		// El formato de ALMACENAMIENTO interno de ACF/WP es MM/DD/YYYY
 		return `${m}/${d}/${y}`;
 	};
 
+	/**
+	 * CONVERSIÓN DE FECHA: Convierte la fecha recibida de ACF
+	 * (puede ser YYYY-MM-DD o MM/DD/YYYY si ya fue guardada) al formato de
+	 * VISUALIZACIÓN (DD/MM/YYYY).
+	 */
 	const formatDateToDisplay = (dateStr) => {
-		// Asumiendo formato MM/DD/YYYY de WordPress
-		const parts = dateStr.split('/');
+		let parts;
+
+		// El Formato de Retorno ACF es YYYY-MM-DD
+		if (dateStr.includes('-')) {
+			const [y, m, d] = dateStr.split('-');
+			parts = [m, d, y]; // Reordenar a MM/DD/YYYY
+		}
+		// Si ya fue guardado por el frontend (fecha_bloq), estará en MM/DD/YYYY
+		else if (dateStr.includes('/')) {
+			parts = dateStr.split('/'); // [m, d, y]
+		} else {
+			return dateStr; // Devolver original si el formato no es reconocido
+		}
+
 		if (parts.length === 3) {
 			const [m, d, y] = parts;
 			return `${d}/${m}/${y}`; // Formato DD/MM/YYYY para display
@@ -131,20 +196,41 @@ export default function DashboardCalendar({ token, onLogout }) {
 		return dateStr;
 	};
 
+	/**
+	 * CONVERSIÓN DE FECHA: Analiza la cadena de fecha (YYYY-MM-DD o MM/DD/YYYY)
+	 * a un objeto Date para su uso en el calendario.
+	 */
 	const parseDate = (str) => {
-		const [m, d, y] = str.split('/').map(Number);
+		let parts;
+
+		// El Formato de Retorno ACF es YYYY-MM-DD
+		if (str.includes('-')) {
+			const [y, m, d] = str.split('-');
+			parts = [m, d, y]; // Reordenar a MM/DD/YYYY
+		}
+		// Si ya fue guardado por el frontend (fecha_bloq), estará en MM/DD/YYYY
+		else if (str.includes('/')) {
+			parts = str.split('/'); // [m, d, y]
+		}
+		else {
+			return new Date(str); // Intenta parsear directamente
+		}
+
+		const [m, d, y] = parts.map(Number);
+		// month index is 0-based (m - 1)
 		return new Date(y, m - 1, d);
 	};
 
 	const generarOpcionesMediaHora = () => {
 		const opciones = [];
 
-		for (let h = 8; h <= 20; h++) {
+		for (let h = 8; h <= 23; h++) {
 			for (let m of [0, 30]) {
 				const ampm = h < 12 ? 'am' : 'pm';
+				// La hora 12 es sin padding (8, 9, 10, 11, 12, 1, 2...)
 				const hora12 = h % 12 === 0 ? 12 : h % 12;
 				const minutos = m === 0 ? '00' : '30';
-				opciones.push(`${hora12}:${minutos} ${ampm}`);
+				opciones.push(`${hora12}:${minutos} ${ampm}`); // Ej: "10:30 am", "1:00 pm"
 			}
 		}
 
@@ -160,13 +246,15 @@ export default function DashboardCalendar({ token, onLogout }) {
 				headers: { Authorization: `Basic ${token}` },
 			});
 			const data = await res.json();
-			// Asegurarse de que `fechas_no_disponibles` sea un array si no existe, para evitar errores en el `map`
+
 			const processedLocales = (data.acf.locales || []).map(local => ({
 				...local,
-				// APLICAR FORMATO ESTÁNDAR PARA QUE LOS <SELECT> FUNCIONEN CORRECTAMENTE
+				// Aplicar formatearHoraACampo a los campos generales
 				inicio_reserva: formatearHoraACampo(local.inicio_reserva),
 				fin_reserva: formatearHoraACampo(local.fin_reserva),
 				atencion_hasta_x_hora: formatearHoraACampo(local.atencion_hasta_x_hora),
+
+				// Asegurar que el campo de fechas bloqueadas es un array, o vacío si es null
 				fechas_no_disponibles: local.fechas_no_disponibles || [],
 				imagen: local.imagen || "",
 			}));
@@ -191,15 +279,20 @@ export default function DashboardCalendar({ token, onLogout }) {
 		setLocales(newLocales);
 		setHasChanges(true);
 
-		// Opcional: Validaciones rápidas de formato de hora si es aplicable.
+		// Validaciones de formato de hora
 		if (['inicio_reserva', 'fin_reserva', 'atencion_hasta_x_hora'].includes(field)) {
-			// Validar que el rango de reserva sea válido si ambas horas están definidas
 			const inicio = newLocales[index].inicio_reserva;
 			const fin = newLocales[index].fin_reserva;
+			const atencion = newLocales[index].atencion_hasta_x_hora;
 
+			// Validar rango de reserva
 			if (inicio && fin && !validarRangoHorario(inicio, fin)) {
-				// Aquí podrías mostrar una notificación de error temporal o marcar el campo
 				console.warn("Rango de reserva inválido");
+			}
+
+			// 🚨 NUEVA VALIDACIÓN: Fin de reserva vs hora de atención
+			if (fin && atencion && !validarRangoHorario(fin, atencion)) {
+				console.warn("La hora de fin de reserva debe ser anterior a la hora de atención");
 			}
 		}
 	};
@@ -212,16 +305,39 @@ export default function DashboardCalendar({ token, onLogout }) {
 		const fechaStr = formatDateToString(fecha);
 
 		const fechas = locales[index].fechas_no_disponibles || [];
-		const fechaExistente = fechas.find((f) => f.fecha_bloq === fechaStr);
+
+		// Buscar tanto en formato MM/DD/YYYY como YYYY-MM-DD
+		const fechaExistente = fechas.find((f) => {
+			const fechaBloqNormalizada = f.fecha_bloq.includes('-')
+				? formatDateToString(parseDate(f.fecha_bloq))
+				: f.fecha_bloq;
+			return fechaBloqNormalizada === fechaStr;
+		});
 
 		if (fechaExistente) {
 			setModalConfig({ localIndex: index, fecha: fechaStr, nombre: locales[index].nombre });
-			setModalRangos(
-				fechaExistente.horas && Array.isArray(fechaExistente.horas)
-					? fechaExistente.horas
-					: []
-			);
-			setBloqueoDiaCompleto(fechaExistente.horas === false);
+
+			const horasBloqueadas = fechaExistente.horas;
+
+			// Verificar si el bloqueo es de día completo (si el valor de "horas" es `false`)
+			if (horasBloqueadas === false) {
+				setModalRangos([]);
+				setBloqueoDiaCompleto(true);
+			} else if (Array.isArray(horasBloqueadas)) {
+				// Si es un array (viene del repeater), formatear para el select del modal
+				setModalRangos(
+					horasBloqueadas.map(r => ({
+						// Aplicar formatearHoraACampo aquí para normalizar correctamente
+						hora_inicio: formatearHoraACampo(r.hora_inicio),
+						hora_fin: formatearHoraACampo(r.hora_fin),
+					}))
+				);
+				setBloqueoDiaCompleto(false);
+			} else {
+				setModalRangos([]);
+				setBloqueoDiaCompleto(false);
+			}
+
 		} else {
 			setModalConfig({ localIndex: index, fecha: fechaStr, nombre: locales[index].nombre });
 			setModalRangos([]);
@@ -257,7 +373,7 @@ export default function DashboardCalendar({ token, onLogout }) {
 				return;
 			}
 
-			// Validar rangos (igualdad y orden)
+			// Validar rangos (igualdad, orden y solapamiento)
 			for (let i = 0; i < modalRangos.length; i++) {
 				const r = modalRangos[i];
 
@@ -278,7 +394,7 @@ export default function DashboardCalendar({ token, onLogout }) {
 				}
 			}
 
-			// Validar que no haya solapamiento entre rangos
+			// Validar solapamiento 
 			for (let i = 0; i < modalRangos.length; i++) {
 				for (let j = i + 1; j < modalRangos.length; j++) {
 					const rangoA = modalRangos[i];
@@ -305,21 +421,28 @@ export default function DashboardCalendar({ token, onLogout }) {
 		}
 
 		const newLocales = [...locales];
-		const fechas =
-			newLocales[modalConfig.localIndex].fechas_no_disponibles || [];
+		const fechas = newLocales[modalConfig.localIndex].fechas_no_disponibles || [];
 
-		// Eliminar fecha anterior si existe
-		const fechasFiltradas = fechas.filter(
-			(f) => f.fecha_bloq !== modalConfig.fecha
-		);
+		// Normalizar la fecha actual para comparación
+		const fechaActual = modalConfig.fecha.includes('-')
+			? formatDateToString(parseDate(modalConfig.fecha))
+			: modalConfig.fecha;
+
+		// Eliminar TODAS las instancias de esta fecha (incluyendo duplicados y diferentes formatos)
+		const fechasFiltradas = fechas.filter((f) => {
+			const fechaBloq = f.fecha_bloq.includes('-')
+				? formatDateToString(parseDate(f.fecha_bloq))
+				: f.fecha_bloq;
+			return fechaBloq !== fechaActual;
+		});
 
 		const nuevoBloqueo = {
-			fecha_bloq: modalConfig.fecha,
+			fecha_bloq: fechaActual, // Usar la fecha normalizada
 			horas: bloqueoDiaCompleto
 				? false
 				: modalRangos.map((r) => ({
-					hora_inicio: r.hora_inicio,
-					hora_fin: r.hora_fin,
+					hora_inicio: convertirHoraA24H(r.hora_inicio),
+					hora_fin: convertirHoraA24H(r.hora_fin),
 				})),
 		};
 
@@ -338,10 +461,18 @@ export default function DashboardCalendar({ token, onLogout }) {
 		const newLocales = [...locales];
 		const localActual = newLocales[modalConfig.localIndex];
 
+		// Normalizar fecha para comparación
+		const fechaAEliminar = modalConfig.fecha.includes('-')
+			? formatDateToString(parseDate(modalConfig.fecha))
+			: modalConfig.fecha;
+
 		// Filtrar la fecha a eliminar
-		const fechasFiltradas = (localActual.fechas_no_disponibles || []).filter(
-			(f) => f.fecha_bloq !== modalConfig.fecha
-		);
+		const fechasFiltradas = (localActual.fechas_no_disponibles || []).filter((f) => {
+			const fechaBloq = f.fecha_bloq.includes('-')
+				? formatDateToString(parseDate(f.fecha_bloq))
+				: f.fecha_bloq;
+			return fechaBloq !== fechaAEliminar;
+		});
 
 		localActual.fechas_no_disponibles = fechasFiltradas;
 
@@ -352,7 +483,6 @@ export default function DashboardCalendar({ token, onLogout }) {
 		setModalRangos([]);
 		setBloqueoDiaCompleto(false);
 	};
-
 	const guardarCambios = async () => {
 		setSaving(true);
 
@@ -375,6 +505,16 @@ export default function DashboardCalendar({ token, onLogout }) {
 				if (!validarRangoHorario(local.fin_reserva, local.atencion_hasta_x_hora)) {
 					showNotification(
 						'error',
+						`Error en ${local.nombre}: La hora de fin de reserva (${local.fin_reserva}) debe ser anterior o igual a la hora de atención (${local.atencion_hasta_x_hora}).`
+					);
+					setSaving(false);
+					return;
+				}
+
+				// Validación de atención
+				if (!validarRangoHorario(local.fin_reserva, local.atencion_hasta_x_hora)) {
+					showNotification(
+						'error',
 						`Error en ${local.nombre}: Hora de fin de atención debe ser posterior a la hora de fin de reserva.`
 					);
 					setSaving(false);
@@ -387,12 +527,13 @@ export default function DashboardCalendar({ token, onLogout }) {
 				nombre: local.nombre,
 				// imagen: local.imagen,
 				location: local.location,
-				inicio_reserva: local.inicio_reserva,
-				fin_reserva: local.fin_reserva,
+				// Convertir las horas de campos generales a formato H:i (24h) para ACF
+				inicio_reserva: convertirHoraA24H(local.inicio_reserva),
+				fin_reserva: convertirHoraA24H(local.fin_reserva),
 				dias_disponibles: local.dias_disponibles,
 				nro_reservas_max: String(local.nro_reservas_max), // Asegurar string para ACF
 				cantidad_personas_max: String(local.cantidad_personas_max), // Asegurar string para ACF
-				atencion_hasta_x_hora: local.atencion_hasta_x_hora,
+				atencion_hasta_x_hora: convertirHoraA24H(local.atencion_hasta_x_hora),
 				fechas_no_disponibles: local.fechas_no_disponibles || [],
 			}));
 
@@ -415,6 +556,7 @@ export default function DashboardCalendar({ token, onLogout }) {
 			showNotification('success', 'Cambios guardados correctamente');
 			setHasChanges(false);
 
+			// Vuelve a cargar para obtener el estado fresco (y formatear a 12h AM/PM para el front)
 			await fetchLocales();
 		} catch (err) {
 			showNotification('error', 'Error al guardar: ' + err.message);
@@ -512,6 +654,7 @@ export default function DashboardCalendar({ token, onLogout }) {
 								Fecha seleccionada
 							</p>
 							<div className="bg-gray-100 px-4 py-2 rounded-lg text-gray-900 font-medium">
+								{/* Muestra la fecha en formato DD/MM/YYYY */}
 								{formatDateToDisplay(modalConfig.fecha)}
 							</div>
 						</div>
@@ -616,8 +759,8 @@ export default function DashboardCalendar({ token, onLogout }) {
 							</button>
 							<button
 								onClick={guardarBloqueo}
-								className="flex-1 px-4 py-3 bg-gray-800 hover:bg-gray-900 text-white rounded-lg font-semibold transition-colors disabled:bg-gray-400"
 								disabled={!bloqueoDiaCompleto && modalRangos.some(r => r.hora_inicio === r.hora_fin || !validarRangoHorario(r.hora_inicio, r.hora_fin))}
+								className="flex-1 px-4 py-3 bg-gray-800 hover:bg-gray-900 text-white rounded-lg font-semibold transition-colors disabled:bg-gray-400"
 							>
 								Guardar
 							</button>
@@ -639,14 +782,31 @@ export default function DashboardCalendar({ token, onLogout }) {
 							Volver a locales
 						</button>
 					)}
-					<a href="https://puntoazulrestaurante.com/" target="_blank" class="flex items-center gap-2 p-2 rounded-lg bg-[#00BDF2] text-white font-medium text-sm shadow-md hover:bg-blue-600 transition" aria-label="Ver página web del local">
-						<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-external-link w-4 h-4">
+					<a
+						href="https://puntoazulrestaurante.com/"
+						target="_blank"
+						className="flex items-center gap-2 p-2 rounded-lg bg-[#00BDF2] text-white font-medium text-sm shadow-md hover:bg-blue-600 transition"
+						aria-label="Ver página web del local"
+					>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="24"
+							height="24"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="2"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+							className="lucide lucide-external-link w-4 h-4"
+						>
 							<path d="M15 3h6v6" />
 							<path d="M10 14 21 3" />
 							<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
 						</svg>
 						Ver Página Web
 					</a>
+
 				</div>
 
 				{selectedIndex === null ? (
@@ -713,30 +873,6 @@ export default function DashboardCalendar({ token, onLogout }) {
 								⚙️ Configuración de {selectedLocal.nombre}
 							</h2>
 
-							{/* Campo: URL de Imagen */}
-							{/* <div>
-								<label htmlFor={`imagen-${selectedLocal.codigo_local}`} className="block text-sm font-medium text-gray-700 mb-1">
-									URL de Imagen del Local
-								</label>
-								<input
-									type="text"
-									id={`imagen-${selectedLocal.codigo_local}`}
-									value={selectedLocal.imagen} // <--- Usa el valor normalizado del estado
-									onChange={(e) =>
-										handleLocalFieldChange(selectedIndex, 'imagen', e.target.value)
-									}
-									className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-3 text-sm focus:ring-blue-500 focus:border-blue-500"
-									placeholder="https://ejemplo.com/imagen.jpg"
-								/>
-								{selectedLocal.imagen && (
-									<img
-										src={selectedLocal.imagen}
-										alt="Previsualización"
-										className="mt-3 w-full h-32 object-cover rounded-lg border border-gray-200"
-									/>
-								)}
-							</div> */}
-
 							{/* Campo: Ubicación */}
 							<div>
 								<label className="block text-sm font-medium text-gray-700 mb-1">
@@ -793,9 +929,21 @@ export default function DashboardCalendar({ token, onLogout }) {
 												<option key={h}>{h}</option>
 											))}
 										</select>
-										{(selectedLocal.inicio_reserva && selectedLocal.fin_reserva) && !validarRangoHorario(selectedLocal.inicio_reserva, selectedLocal.fin_reserva) && (
-											<p className="text-xs text-red-500 mt-1">El fin debe ser posterior al inicio de reserva.</p>
-										)}
+										{/* Validación: fin debe ser posterior al inicio */}
+										{(selectedLocal.inicio_reserva && selectedLocal.fin_reserva) &&
+											!validarRangoHorario(selectedLocal.inicio_reserva, selectedLocal.fin_reserva) && (
+												<p className="text-xs text-red-500 mt-1">
+													El fin debe ser posterior al inicio de reserva.
+												</p>
+											)}
+										{/* 🚨 NUEVA VALIDACIÓN: fin no debe superar hora de atención */}
+										{(selectedLocal.fin_reserva && selectedLocal.atencion_hasta_x_hora) &&
+											!validarRangoHorario(selectedLocal.fin_reserva, selectedLocal.atencion_hasta_x_hora) && (
+												<p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+													<AlertCircle className="w-3 h-3" />
+													No puede ser posterior a la hora de atención ({selectedLocal.atencion_hasta_x_hora}).
+												</p>
+											)}
 									</div>
 								</div>
 							</div>
@@ -816,9 +964,13 @@ export default function DashboardCalendar({ token, onLogout }) {
 										<option key={h}>{h}</option>
 									))}
 								</select>
-								{(selectedLocal.fin_reserva && selectedLocal.atencion_hasta_x_hora) && !validarRangoHorario(selectedLocal.fin_reserva, selectedLocal.atencion_hasta_x_hora) && (
-									<p className="text-xs text-red-500 mt-1">Debe ser posterior a la hora de fin de reserva.</p>
-								)}
+								{(selectedLocal.fin_reserva && selectedLocal.atencion_hasta_x_hora) &&
+									!validarRangoHorario(selectedLocal.fin_reserva, selectedLocal.atencion_hasta_x_hora) && (
+										<p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+											<AlertCircle className="w-3 h-3" />
+											La hora de atención debe ser posterior a la hora de fin de reserva ({selectedLocal.fin_reserva}).
+										</p>
+									)}
 							</div>
 
 
@@ -911,6 +1063,7 @@ export default function DashboardCalendar({ token, onLogout }) {
 										locale={es}
 										className="custom-calendar-style"
 										modifiers={{
+											// Usa parseDate para convertir YYYY-MM-DD o MM/DD/YYYY a objeto Date
 											blocked: selectedLocal.fechas_no_disponibles.map(f => parseDate(f.fecha_bloq)),
 										}}
 										modifiersStyles={{
@@ -940,41 +1093,63 @@ export default function DashboardCalendar({ token, onLogout }) {
 									{selectedLocal.fechas_no_disponibles.length > 0 ? (
 										selectedLocal.fechas_no_disponibles
 											.sort((a, b) => parseDate(a.fecha_bloq) - parseDate(b.fecha_bloq))
-											.map((fb, idx) => (
-												<div
-													key={idx}
-													className="bg-red-50 p-3 rounded-lg border border-red-200 flex items-start justify-between cursor-pointer hover:bg-red-100 transition-colors"
-													onClick={(e) => {
-														// Simula el click en el calendario para abrir el modal
-														const fakeDate = parseDate(fb.fecha_bloq);
-														handleDayClick(fakeDate, selectedIndex, e);
-													}}
-												>
-													<div className="flex flex-col">
-														<span className="font-semibold text-red-800 text-sm mb-1">
-															{formatDateToDisplay(fb.fecha_bloq)}
-														</span>
-														<span className={`text-xs ${fb.horas === false ? 'text-red-900 font-bold' : 'text-gray-700'}`}>
-															{fb.horas === false
-																? '🚫 Día Completo Bloqueado'
-																: `Bloqueado: ${fb.horas.length} ${fb.horas.length === 1 ? 'rango' : 'rangos'}`
-															}
-														</span>
-													</div>
-													<button
+											.map((fb, idx) => {
+												// Normalizar la fecha para display
+												const fechaDisplay = fb.fecha_bloq.includes('-')
+													? formatDateToDisplay(fb.fecha_bloq)
+													: formatDateToDisplay(fb.fecha_bloq);
+
+												return (
+													<div
+														key={`${fb.fecha_bloq}-${idx}`}
+														className="bg-red-50 p-3 rounded-lg border border-red-200 cursor-pointer hover:bg-red-100 transition-colors"
 														onClick={(e) => {
-															e.stopPropagation(); // Evitar abrir el modal al hacer click en la X
-															setModalConfig({ localIndex: selectedIndex, fecha: fb.fecha_bloq, nombre: selectedLocal.nombre });
-															// Forzar eliminación sin abrir el modal de configuración
-															setTimeout(() => eliminarBloqueo(), 100);
+															const fakeDate = parseDate(fb.fecha_bloq);
+															handleDayClick(fakeDate, selectedIndex, e);
 														}}
-														className="p-1 text-red-600 hover:text-red-800 rounded-full hover:bg-red-200 transition"
-														title="Eliminar bloqueo de fecha"
 													>
-														<X className="w-4 h-4" />
-													</button>
-												</div>
-											))
+														<div className="flex items-start justify-between">
+															<div className="flex flex-col flex-1">
+																<span className="font-semibold text-red-800 text-sm mb-1">
+																	📅 {fechaDisplay}
+																</span>
+
+																{Array.isArray(fb.horas) ? (
+																	<div className="space-y-1 mt-2">
+																		<span className="text-xs text-gray-600 font-medium">
+																			Rangos bloqueados:
+																		</span>
+																		{fb.horas.map((rango, rIdx) => (
+																			<div key={rIdx} className="flex items-center gap-2 text-xs text-gray-700 bg-white px-2 py-1 rounded">
+																				<Clock className="w-3 h-3" />
+																				<span>
+																					{formatearHoraACampo(rango.hora_inicio)} - {formatearHoraACampo(rango.hora_fin)}
+																				</span>
+																			</div>
+																		))}
+																	</div>
+																) : (
+																	<span className="text-xs text-red-900 font-bold mt-1">
+																		🚫 Día Completo Bloqueado
+																	</span>
+																)}
+															</div>
+
+															<button
+																onClick={(e) => {
+																	e.stopPropagation();
+																	setModalConfig({ localIndex: selectedIndex, fecha: fb.fecha_bloq, nombre: selectedLocal.nombre });
+																	setTimeout(() => eliminarBloqueo(), 100);
+																}}
+																className="p-1 text-red-600 hover:text-red-800 rounded-full hover:bg-red-200 transition ml-2"
+																title="Eliminar bloqueo de fecha"
+															>
+																<X className="w-4 h-4" />
+															</button>
+														</div>
+													</div>
+												);
+											})
 									) : (
 										<p className="text-gray-500 text-sm">
 											No hay fechas bloqueadas para este local.
@@ -988,10 +1163,10 @@ export default function DashboardCalendar({ token, onLogout }) {
 			</div>
 
 			{/* Estilos adicionales para DayPicker (necesarios para el estilo personalizado) */}
-			<style jsx global>{`
+			<style>{`
                 .custom-calendar-style .rdp {
-                    --rdp-cell-size: 40px; 
-                    --rdp-caption-font-size: 1.125rem; 
+                    --rdp-cell-size: 40px;
+                    --rdp-caption-font-size: 1.125rem;
                     padding: 0;
                 }
                 .custom-calendar-style .rdp-day {
@@ -1002,23 +1177,24 @@ export default function DashboardCalendar({ token, onLogout }) {
                 }
                 .custom-calendar-style .rdp-day_selected:not([aria-disabled='true']),
                 .custom-calendar-style .rdp-day_selected:hover:not([aria-disabled='true']) {
-                    background-color: #1f2937; /* Gray 800 para seleccion manual */
+                    background-color: #1f2937;
                     color: white;
                 }
                 .custom-calendar-style .rdp-day:hover:not([aria-disabled='true']) {
-                    background-color: #f3f4f6; /* Gray 100 on hover */
+                    background-color: #f3f4f6;
                 }
                 .custom-calendar-style .rdp-button {
                     border-radius: 8px;
                 }
                 .custom-calendar-style .rdp-nav_button {
-                    color: #4b5563; /* Gray 600 */
+                    color: #4b5563;
                 }
                 .custom-calendar-style .rdp-head_cell {
-                    color: #1f2937; /* Gray 800 */
+                    color: #1f2937;
                     font-weight: 600;
                 }
             `}</style>
+
 		</div>
 	);
 }
