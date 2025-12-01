@@ -752,7 +752,7 @@ export default function DashboardCalendar({ token, onLogout }) {
 						<div className="flex gap-3 mt-6">
 							<button
 								onClick={eliminarBloqueo}
-								className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold transition-colors disabled:bg-red-300"
+								className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold transition-colors disabled:bg-red-300 disabled:hidden"
 								disabled={!locales[modalConfig.localIndex]?.fechas_no_disponibles.some(f => f.fecha_bloq === modalConfig.fecha)}
 							>
 								Eliminar bloqueo
